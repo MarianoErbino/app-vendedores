@@ -1,0 +1,9 @@
+# Archivos internos / sensibles - NO subir a GitHub
+BPs_Pesca_DTW_Ready.xlsx
+SAP-EXPOE*.xlsx
+*.csv
+_*.md
+_*.py
+Pitch_Lunes_App_Vendedores.md
+Roadmap_Integracion_App_SAP.md
+Solicitud_SEIDOR_Integracion_App.md
