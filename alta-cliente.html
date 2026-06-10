@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Alta de cliente - Shimano</title>
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192-v3.png">
+<meta name="theme-color" content="#00A9E0">
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f8fafc;color:#0f172a;min-height:100vh;padding:0;line-height:1.4}
+.wrap{max-width:680px;margin:0 auto;padding:0;background:#fff;min-height:100vh;box-shadow:0 0 20px rgba(0,0,0,.05)}
+.header{background:linear-gradient(135deg,#0c4a6e,#0284c7);color:#fff;padding:24px 22px}
+.logo{font-size:11px;font-weight:800;letter-spacing:3px;background:#00A9E0;padding:5px 12px;border-radius:4px;display:inline-block;margin-bottom:10px;color:#fff}
+.header h1{font-size:18px;font-weight:800;margin-bottom:6px}
+.header p{font-size:12px;opacity:.9;line-height:1.5}
+.vendor-info{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);border-radius:6px;padding:8px 12px;margin-top:12px;font-size:11px}
+.vendor-info b{font-weight:800}
+.intro{background:#fef3c7;border:1px solid #fcd34d;color:#78350f;padding:12px 16px;font-size:11px;margin:16px 18px;border-radius:6px;line-height:1.6}
+.intro b{font-weight:800}
+form{padding:0 20px 24px}
+h2{font-size:13px;font-weight:800;color:#0284c7;margin:18px 0 10px;padding-bottom:5px;border-bottom:2px solid #bae6fd;text-transform:uppercase;letter-spacing:.5px}
+.row{margin-bottom:11px}
+.row label{display:block;font-size:10px;font-weight:700;color:#475569;margin-bottom:4px;text-transform:uppercase;letter-spacing:.3px}
+.row input,.row select,.row textarea{width:100%;padding:9px 11px;border:1.5px solid #cbd5e1;border-radius:5px;font-size:13px;font-family:inherit;background:#fff;outline:none}
+.row input:focus,.row select:focus,.row textarea:focus{border-color:#0284c7}
+.row textarea{resize:vertical;min-height:60px}
+.req{color:#dc2626;font-weight:800}
+.hint{font-size:9px;color:#94a3b8;font-weight:500;text-transform:none;letter-spacing:0;margin-left:5px}
+.photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px;margin-top:4px}
+.photo-cell{aspect-ratio:1;border:2px dashed #cbd5e1;border-radius:6px;background:#f8fafc;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:24px;color:#94a3b8;position:relative;overflow:hidden}
+.photo-cell input{display:none}
+.photo-cell.add{font-size:10px;text-align:center;font-weight:700;color:#0284c7;line-height:1.3;flex-direction:column;background:#f0f9ff;border-color:#7dd3fc}
+.photo-cell img{width:100%;height:100%;object-fit:cover}
+.photo-cell .rm{position:absolute;top:4px;right:4px;background:#dc2626;color:#fff;border:none;width:22px;height:22px;border-radius:50%;font-size:14px;cursor:pointer;font-weight:800;line-height:1}
+.btn-submit{width:100%;background:linear-gradient(135deg,#0284c7,#0c4a6e);color:#fff;border:none;padding:14px;border-radius:8px;font-size:14px;font-weight:800;cursor:pointer;text-transform:uppercase;letter-spacing:.4px;margin-top:18px;box-shadow:0 2px 8px rgba(2,132,199,.3)}
+.btn-submit:hover{box-shadow:0 4px 12px rgba(2,132,199,.5)}
+.btn-submit:disabled{opacity:.5;cursor:not-allowed}
+.ok-screen{padding:40px 22px;text-align:center}
+.ok-screen .ico{font-size:56px;margin-bottom:14px}
+.ok-screen h2{color:#10b981;font-size:18px;border:none;margin-bottom:10px}
+.ok-screen p{font-size:13px;color:#475569;line-height:1.6}
+.err-screen{background:#fee2e2;border:1px solid #fca5a5;color:#991b1b;padding:14px;margin:14px 20px;border-radius:6px;font-size:12px;line-height:1.5;display:none}
+@media (max-width:480px){
+  .header{padding:18px 16px}
+  form{padding:0 14px 18px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div class="logo">SHIMANO</div>
+    <h1>Solicitud de alta de cliente</h1>
+    <p>Completa los datos de tu comercio. Una vez enviada, la solicitud queda en revisi&oacute;n y te contactaremos por mail cuando est&eacute; aprobada.</p>
+    <div class="vendor-info" id="vendor-info" style="display:none">Enviada a trav&eacute;s de: <b id="vendor-name"></b></div>
+  </div>
+
+  <div class="intro">
+    <b>Importante:</b> todos los campos marcados con <span class="req">*</span> son obligatorios. Vas a necesitar tener a mano la <b>Constancia ARCA</b>, la <b>Constancia IIBB</b> y <b>fotos del local (frente e interior)</b>.
+  </div>
+
+  <div class="err-screen" id="err-screen"></div>
+
+  <form id="alta-form" autocomplete="off">
+    <h2>Datos del comercio</h2>
+    <div class="row"><label>E-mail <span class="req">*</span></label><input type="email" id="ac-email" required/></div>
+    <div class="row"><label>Nombre del comercio <span class="req">*</span></label><input type="text" id="ac-comercio" required maxlength="120"/></div>
+    <div class="row"><label>Nombre de fantas&iacute;a <span class="req">*</span></label><input type="text" id="ac-fantasia" required maxlength="120"/></div>
+    <div class="row"><label>CUIT <span class="req">*</span></label><input type="text" id="ac-cuit" required placeholder="20-12345678-9" maxlength="13"/></div>
+    <div class="row"><label>Condici&oacute;n Fiscal <span class="req">*</span></label><select id="ac-condfiscal" required>
+      <option value="">Seleccionar...</option>
+      <option>Responsable Inscripto</option><option>Monotributo</option>
+      <option>Exento</option><option>Consumidor Final</option><option>Responsable No Inscripto</option>
+    </select></div>
+    <div class="row"><label>Calle <span class="req">*</span></label><input type="text" id="ac-calle" required maxlength="80"/></div>
+    <div class="row"><label>N&uacute;mero <span class="req">*</span></label><input type="text" id="ac-numero" required maxlength="10"/></div>
+    <div class="row"><label>Localidad <span class="req">*</span></label><input type="text" id="ac-localidad" required maxlength="60"/></div>
+    <div class="row"><label>Provincia <span class="req">*</span></label><select id="ac-provincia" required></select></div>
+    <div class="row"><label>C&oacute;digo Postal <span class="req">*</span></label><input type="text" id="ac-cp" required maxlength="10"/></div>
+    <div class="row"><label>Tel&eacute;fono <span class="req">*</span></label><input type="tel" id="ac-telefono" required maxlength="20"/></div>
+    <div class="row"><label>P&aacute;gina Web <span class="req">*</span></label><input type="url" id="ac-web" required placeholder="https://..."/></div>
+    <div class="row"><label>Redes (Instagram / Facebook) <span class="req">*</span></label><input type="text" id="ac-redes" required placeholder="@usuario IG / usuario FB"/></div>
+
+    <h2>Datos de contacto</h2>
+    <div class="row"><label>Nombre y Apellido <span class="req">*</span></label><input type="text" id="ac-contacto-nombre" required maxlength="80"/></div>
+    <div class="row"><label>Tel&eacute;fono particular <span class="req">*</span></label><input type="tel" id="ac-contacto-telpart" required maxlength="20"/></div>
+    <div class="row"><label>WhatsApp / Celular <span class="req">*</span></label><input type="tel" id="ac-contacto-wsp" required maxlength="20"/></div>
+    <div class="row"><label>E-mail del contacto <span class="req">*</span></label><input type="email" id="ac-contacto-email" required/></div>
+    <div class="row"><label>Tipo de comercio <span class="req">*</span></label><select id="ac-tipocomercio" required>
+      <option value="">Seleccionar...</option>
+      <option>PESCA</option><option>OUTDOOR</option><option>CAZA</option><option>MULTIRUBRO</option>
+    </select></div>
+    <div class="row"><label>Tienda online <span class="req">*</span></label><select id="ac-tiendaonline" required>
+      <option value="">Seleccionar...</option>
+      <option>MERCADO LIBRE</option><option>P&Aacute;GINA WEB PROPIA</option><option>OTROS</option><option>NO TIENE</option>
+    </select></div>
+
+    <h2>Documentaci&oacute;n a adjuntar</h2>
+    <div class="row"><label>Constancia inscripci&oacute;n ARCA <span class="req">*</span></label>
+      <div class="photo-grid" id="g-arca"><label class="photo-cell add"><input type="file" accept="image/*,.pdf" onchange="onF(this,'arca')"/><span>+ ARCA</span></label></div>
+    </div>
+    <div class="row"><label>Constancia IIBB <span class="req">*</span></label>
+      <div class="photo-grid" id="g-iibb"><label class="photo-cell add"><input type="file" accept="image/*,.pdf" onchange="onF(this,'iibb')"/><span>+ IIBB</span></label></div>
+    </div>
+    <div class="row"><label>Fotos del local <span class="req">*</span> <span class="hint">(frente e interior, hasta 5)</span></label>
+      <div class="photo-grid" id="g-fotos"><label class="photo-cell add"><input type="file" accept="image/*" multiple onchange="onF(this,'fotos')"/><span>+ FOTOS</span></label></div>
+    </div>
+
+    <button type="button" class="btn-submit" id="btn-submit" onclick="submitForm()">Enviar solicitud</button>
+  </form>
+
+  <div id="ok-screen" class="ok-screen" style="display:none">
+    <div class="ico">&#9989;</div>
+    <h2>Solicitud enviada</h2>
+    <p>Recibimos tus datos correctamente. Los revisores van a evaluar la solicitud y te vamos a contactar al e-mail que cargaste cuando est&eacute; aprobada.</p>
+    <p style="margin-top:14px;font-size:11px;color:#94a3b8">Pod&eacute;s cerrar esta ventana.</p>
+  </div>
+</div>
+
+<script>
+// === Config Firebase (igual que la app principal) ===
+firebase.initializeApp({
+  apiKey: "AIzaSyAU9WhHZK6MQ01VJpdj-ZwGDRfjH6HEAFM",
+  authDomain: "app-vendedores-shimano.firebaseapp.com",
+  projectId: "app-vendedores-shimano",
+  storageBucket: "app-vendedores-shimano.firebasestorage.app",
+  messagingSenderId: "746111030735",
+  appId: "1:746111030735:web:1d1cd24bc5a6bbe171eeba"
+});
+const db = firebase.firestore();
+
+// === Vendor info desde query string ===
+const params = new URLSearchParams(window.location.search);
+const vendorUid = params.get('vendor') || null;
+const vendorName = params.get('vendorName') || params.get('vname') || null;
+const vendorEmail = params.get('vendorEmail') || params.get('vemail') || null;
+if (vendorName) {
+  document.getElementById('vendor-info').style.display = '';
+  document.getElementById('vendor-name').textContent = vendorName;
+}
+
+// === Provincias ===
+const PROVINCIAS = ['BUENOS AIRES','CABA','CATAMARCA','CHACO','CHUBUT','CORDOBA','CORRIENTES','ENTRE RIOS','FORMOSA','JUJUY','LA PAMPA','LA RIOJA','MENDOZA','MISIONES','NEUQUEN','RIO NEGRO','SALTA','SAN JUAN','SAN LUIS','SANTA CRUZ','SANTA FE','SANTIAGO DEL ESTERO','TIERRA DEL FUEGO','TUCUMAN'];
+const provSel = document.getElementById('ac-provincia');
+provSel.innerHTML = '<option value="">Seleccionar...</option>' + PROVINCIAS.map(p => '<option>' + p + '</option>').join('');
+
+// === Compresion de imagenes a base64 ===
+function compressImage(file, maxWidth, quality){
+  maxWidth = maxWidth || 1400; quality = quality || 0.78;
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      // Si es PDF, lo mandamos tal cual sin compresion (base64)
+      if (file.type === 'application/pdf') { resolve(e.target.result); return; }
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(maxWidth / img.width, 1);
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        resolve(c.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+const files = {arca: null, iibb: null, fotos: []};
+
+async function onF(input, kind){
+  const fs = [...(input.files || [])];
+  for (const f of fs) {
+    try {
+      const b64 = await compressImage(f, 1400, 0.78);
+      if (kind === 'fotos') {
+        if (files.fotos.length >= 5) { alert('Maximo 5 fotos del local.'); break; }
+        files.fotos.push(b64);
+      } else {
+        files[kind] = b64; break;
+      }
+    } catch(e) { console.warn(e); }
+  }
+  input.value = '';
+  refresh(kind);
+}
+window.onF = onF;
+
+function refresh(kind){
+  const gridId = 'g-' + kind;
+  const grid = document.getElementById(gridId);
+  let html = '';
+  if (kind === 'fotos') {
+    html = files.fotos.map((b64, i) =>
+      '<label class="photo-cell"><img src="' + b64 + '"/><button type="button" class="rm" onclick="removeF(\'fotos\',' + i + ')">&times;</button></label>'
+    ).join('');
+    if (files.fotos.length < 5) html += '<label class="photo-cell add"><input type="file" accept="image/*" multiple onchange="onF(this,\'fotos\')"/><span>+ FOTOS</span></label>';
+  } else {
+    if (files[kind]) {
+      const isImg = !files[kind].startsWith('data:application/pdf');
+      const preview = isImg ? '<img src="' + files[kind] + '"/>' : '<div style="font-size:10px;color:#475569;font-weight:700">PDF</div>';
+      html = '<label class="photo-cell">' + preview + '<button type="button" class="rm" onclick="removeF(\'' + kind + '\')">&times;</button></label>';
+    } else {
+      html = '<label class="photo-cell add"><input type="file" accept="image/*,.pdf" onchange="onF(this,\'' + kind + '\')"/><span>+ ' + kind.toUpperCase() + '</span></label>';
+    }
+  }
+  grid.innerHTML = html;
+}
+function removeF(kind, idx){
+  if (kind === 'fotos') files.fotos.splice(idx, 1);
+  else files[kind] = null;
+  refresh(kind);
+}
+window.removeF = removeF;
+
+async function submitForm(){
+  function r(id){ return (document.getElementById(id).value || '').trim(); }
+  const errors = [];
+  const fields = [
+    ['ac-email','E-mail'],['ac-comercio','Nombre comercio'],['ac-fantasia','Fantasia'],
+    ['ac-cuit','CUIT'],['ac-condfiscal','Condicion fiscal'],
+    ['ac-calle','Calle'],['ac-numero','Numero'],['ac-localidad','Localidad'],['ac-provincia','Provincia'],['ac-cp','CP'],
+    ['ac-telefono','Telefono'],['ac-web','Web'],['ac-redes','Redes'],
+    ['ac-contacto-nombre','Contacto nombre'],['ac-contacto-telpart','Tel particular'],
+    ['ac-contacto-wsp','WhatsApp'],['ac-contacto-email','Email contacto'],
+    ['ac-tipocomercio','Tipo comercio'],['ac-tiendaonline','Tienda online'],
+  ];
+  fields.forEach(([id, label]) => { if (!r(id)) errors.push(label); });
+  if (!files.arca) errors.push('Constancia ARCA');
+  if (!files.iibb) errors.push('Constancia IIBB');
+  if (!files.fotos.length) errors.push('Fotos del local');
+  if (errors.length) {
+    const errEl = document.getElementById('err-screen');
+    errEl.innerHTML = '<b>Faltan completar:</b><br>- ' + errors.join('<br>- ');
+    errEl.style.display = '';
+    window.scrollTo({top: 0, behavior: 'smooth'});
+    return;
+  }
+  document.getElementById('err-screen').style.display = 'none';
+  const btn = document.getElementById('btn-submit');
+  btn.disabled = true; btn.textContent = 'Enviando...';
+  try {
+    await db.collection('client_applications').add({
+      email: r('ac-email'),
+      comercio: r('ac-comercio'),
+      fantasia: r('ac-fantasia'),
+      cuit: r('ac-cuit'),
+      condicionFiscal: r('ac-condfiscal'),
+      calle: r('ac-calle'),
+      numero: r('ac-numero'),
+      localidad: r('ac-localidad'),
+      provincia: r('ac-provincia'),
+      cp: r('ac-cp'),
+      telefono: r('ac-telefono'),
+      web: r('ac-web'),
+      redes: r('ac-redes'),
+      contactoNombre: r('ac-contacto-nombre'),
+      contactoTelParticular: r('ac-contacto-telpart'),
+      contactoWhatsapp: r('ac-contacto-wsp'),
+      contactoEmail: r('ac-contacto-email'),
+      tipoComercio: r('ac-tipocomercio'),
+      tiendaOnline: r('ac-tiendaonline'),
+      constanciaArca: files.arca,
+      constanciaIIBB: files.iibb,
+      fotosLocal: files.fotos.slice(),
+      // Metadata: cargada por externo via link compartido
+      submittedByPublicForm: true,
+      ownerUid: vendorUid || '__public__',
+      ownerEmail: vendorEmail || 'external_submission',
+      ownerName: vendorName || 'Cliente externo',
+      vendor: null,
+      status: 'pending_approval',
+      approvals: {},
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    document.getElementById('alta-form').style.display = 'none';
+    document.querySelector('.intro').style.display = 'none';
+    document.getElementById('ok-screen').style.display = '';
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  } catch(e) {
+    console.error(e);
+    btn.disabled = false; btn.textContent = 'Enviar solicitud';
+    const errEl = document.getElementById('err-screen');
+    errEl.innerHTML = '<b>No pudimos enviar tu solicitud.</b><br>Detalle tecnico: ' + (e.message || e) + '<br><br>Por favor probá de nuevo o contactá al vendedor que te paso el link.';
+    errEl.style.display = '';
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  }
+}
+window.submitForm = submitForm;
+</script>
+</body>
+</html>
