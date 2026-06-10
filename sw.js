@@ -7,15 +7,16 @@
 //
 // Cuando se cambie la version, bumpear CACHE_VERSION para invalidar el cache viejo.
 
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';
 const STATIC_CACHE = 'shimano-static-' + CACHE_VERSION;
 const HTML_CACHE = 'shimano-html-' + CACHE_VERSION;
 
 const STATIC_ASSETS = [
   './manifest.json',
-  './icon-192.png',
-  './icon-512.png',
-  './icon-512-maskable.png',
+  './icon-180-v3.png',
+  './icon-192-v3.png',
+  './icon-512-v3.png',
+  './icon-512-maskable-v3.png',
   './Shimano-Logo.png',
 ];
 
