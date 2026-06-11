@@ -47,6 +47,7 @@ App web para el equipo comercial de **Shimano Argentina** durante la transición
 29. [Regenerar y deployar](#29-regenerar-y-deployar)
 30. [Troubleshooting](#30-troubleshooting)
 31. [Roadmap / pendientes](#31-roadmap--pendientes)
+32. [Ciberseguridad y hardening](#32-ciberseguridad-y-hardening)
 
 ---
 
@@ -1520,6 +1521,220 @@ GitHub detecta secretos (API keys, credenciales) y bloquea push. Soluciones:
 
 ---
 
+## 32) Ciberseguridad y hardening
+
+Junio 2026 se ejecutó un hardening integral de seguridad sobre todas las capas del stack. El detalle completo está en `Informe_Ciberseguridad_App_Vendedores.docx` (destinado a IT/Sistemas). Esta sección resume las **9 capas activas** y las decisiones tomadas, para que cualquier futuro mantenedor entienda **qué hay, por qué, y cómo modificarlo sin romper nada**.
+
+### 32.1 Filosofía: defense-in-depth
+
+Cada capa es independiente. Si una falla, las otras contienen el ataque. No depende de que un único control sea perfecto.
+
+| # | Capa | Tecnología | Estado |
+|---|---|---|---|
+| 1 | Autenticación | Google OAuth + whitelist + password gate + 2FA TOTP | ✅ Activo |
+| 2 | Autorización | Firestore Security Rules con roles | ✅ Activo |
+| 3 | Anti-abuso | Firebase App Check + reCAPTCHA v3 | ✅ Activo (modo observación) |
+| 4 | API key restringida | Google Cloud Console (4 APIs + 3 dominios) | ✅ Activo |
+| 5 | Dominios OAuth | Firebase Auth Authorized Domains (3 dominios) | ✅ Activo |
+| 6 | Repo (push) | GitHub Branch Ruleset "Protect main" | ✅ Activo |
+| 7 | Repo (análisis) | CodeQL + Dependabot security updates | ✅ Activo |
+| 8 | Repo (secretos) | Secret scanning + Push protection | ✅ Activo |
+| 9 | Cliente (browser) | Content Security Policy | ✅ Activo |
+
+### 32.2 Capa 1 — Autenticación
+
+Tres factores apilados:
+
+1. **Google OAuth 2.0** — el vendedor inicia sesión con su cuenta Google. Shimano nunca ve la password de Google. Beneficio extra: si Google detecta login sospechoso (ubicación rara, device nuevo) bloquea antes de llegar a la app.
+2. **Whitelist de emails** — colección `usuarios` en Firestore. Emails no preregistrados son deslogueados.
+3. **Password gate** — después de Google OAuth, cada usuario ingresa una password adicional. Default `Shi*10`, cambiable por admin. Hash SHA-256 + salt por usuario, guardado en Firestore. La password en texto plano **nunca se almacena**.
+4. **2FA TOTP opcional** — implementación propia de RFC 6238 en JS del browser, compatible con Google Authenticator. Algoritmo HMAC-SHA1, ventana de tolerancia ±30s. Activación por usuario desde su perfil; recomendada para administradores.
+
+### 32.3 Capa 2 — Autorización (Firestore Security Rules)
+
+Las rules se evalúan **server-side** en cada operación. Imposible saltearlas modificando el cliente.
+
+Estructura general:
+- `allow read` si `auth.uid` existe + email en whitelist + rol permite la acción.
+- `allow write` si admin O dueño del recurso, validando que no se modifiquen campos protegidos.
+- Validación de tipos (string, number, timestamp) para prevenir corrupción.
+- Bloqueo de paths sensibles (`app_config`) sólo a admin.
+
+Roles definidos: `admin`, `vendedor`, `vendedor_interno`.
+
+### 32.4 Capa 3 — Firebase App Check (anti-abuso)
+
+Aunque la API key de Firebase es pública (visible en el JS del cliente, por diseño de Firebase), un atacante no puede usarla desde otro lugar porque **cada request debe ir acompañada de un token App Check válido**.
+
+- **Provider**: reCAPTCHA v3 (invisible, sin interacción del usuario).
+- **Site Key**: `6Ld7ghktAAAAALHkv0-D3YFHqMiq_6zMD3yXsci-` (pública, embebida en cliente).
+- **Secret Key**: configurada en Firebase Console App Check.
+- **Token TTL**: 24 horas.
+- **Score reCAPTCHA threshold**: 0.5 (medio).
+- **Estado actual**: modo **Unenforced** (loguea pero no bloquea). Después de 7 días verificando >95% requests Verified en dashboard, activar **Enforce** en Cloud Firestore API y Identity Toolkit API.
+
+Dashboard de observación:
+```
+https://console.firebase.google.com/project/app-vendedores-shimano/appcheck/apis
+```
+
+### 32.5 Capa 4 — Restricción de API key (Google Cloud Console)
+
+API key `AIzaSyB...` está pública pero restringida:
+
+**Application restrictions (HTTP referers)**: solo funciona desde:
+- `https://shimano-arg.github.io/*` (producción)
+- `https://app-vendedores-shimano.firebaseapp.com/*`
+- `http://localhost` (dev)
+
+**API restrictions**: solo puede invocar 4 APIs:
+1. Identity Toolkit API (Firebase Auth)
+2. Cloud Firestore API
+3. Token Service API
+4. Firebase Installations API
+
+Cualquier intento de usar la key para Cloud Functions, Storage, BigQuery, Maps → **403 Forbidden**.
+
+Configuración en:
+```
+https://console.cloud.google.com/apis/credentials/key/<KEY_ID>?project=app-vendedores-shimano
+```
+
+### 32.6 Capa 5 — Dominios OAuth autorizados
+
+Firebase Auth solo acepta redirecciones OAuth hacia dominios explícitamente autorizados. Evita phishing con dominios similares.
+
+Lista actual depurada:
+- `shimano-arg.github.io` (Custom)
+- `app-vendedores-shimano.firebaseapp.com` (Default)
+- `app-vendedores-shimano.web.app` (Default)
+
+Eliminados durante hardening:
+- `localhost` — ya no se desarrolla local sobre la app productiva.
+- `marianoerbino.github.io` — dominio personal previo a migración a usuario corporativo `shimano-arg`.
+
+Configuración en Firebase Console → Authentication → Settings → Authorized domains.
+
+### 32.7 Capa 6 — Branch Ruleset "Protect main"
+
+Ruleset aplicado a la rama `main` del repositorio GitHub.
+
+- **Status**: Active.
+- **Bypass list**: vacía (nadie puede saltarse las reglas).
+- **Target**: default branch (main).
+- **Reglas activas**:
+  - ✅ Restrict deletions — nadie puede borrar main.
+  - ✅ Block force pushes — nadie puede reescribir la historia.
+  - ✅ Require linear history — previene merges enredados.
+- **Reglas NO activadas (intencionalmente)**: requerir PR previo, requerir reviewers, requerir commits firmados. Se evaluarán si se incorpora un segundo developer.
+
+Configuración: `https://github.com/shimano-arg/app-vendedores/settings/rules`
+
+### 32.8 Capa 7 — Dependabot + CodeQL
+
+**Dependabot** (escaneo de dependencias):
+- ✅ Dependency graph
+- ✅ Automatic dependency submission
+- ✅ Dependabot alerts (notifica CVEs)
+- ✅ Dependabot security updates (PR automático con patch)
+- ✅ Grouped security updates (agrupa fixes)
+- ❌ Dependabot version updates (intencionalmente OFF — genera ruido)
+
+**CodeQL Code scanning**:
+- Setup **Default**, lenguaje JavaScript.
+- Análisis semántico buscando patrones de XSS, injection, path traversal.
+- Frecuencia: push a main + escaneo semanal.
+- ✅ Copilot Autofix activo (sugerencias de fix con IA).
+- Severity threshold: High or higher.
+
+Configuración: `https://github.com/shimano-arg/app-vendedores/settings/security_analysis`
+
+### 32.9 Capa 8 — Secret Scanning + Push Protection
+
+- ✅ **Secret Scanning** — escanea el historial completo del repo buscando API keys/tokens/credenciales.
+- ✅ **Push Protection** — bloquea pushes en el acto si contienen un secreto detectable (AWS, GCP, Anthropic, OpenAI, Stripe, Firebase, 200+ proveedores).
+- ✅ **Private vulnerability reporting** — investigadores externos pueden reportar bugs sin exponerlos.
+
+**Incidente prevenido (junio 2026)**: durante el desarrollo se intentó por error commitear una API key de Google Gemini hardcodeada. Push Protection lo bloqueó. Se reemplazó por lectura dinámica desde Firestore `app_config/gemini.apiKey`.
+
+### 32.10 Capa 9 — Content Security Policy (CSP)
+
+Meta tag en el `<head>` del HTML que limita desde qué dominios el browser puede cargar contenido. Si un atacante logra inyectar JS via XSS, el browser bloqueará cualquier intento de cargar código desde dominios no autorizados.
+
+**Allowlist configurado (resumen)**:
+
+| Directiva | Dominios permitidos |
+|---|---|
+| `default-src` | `'self'` |
+| `script-src` | self, gstatic, google, googletagmanager, apis.google.com, unpkg, jsdelivr, cdnjs, `*.googleapis.com`, `*.firebaseio.com`, `*.firebaseapp.com`, recaptcha.net + `'unsafe-inline'` + `'unsafe-eval'` |
+| `style-src` | self, unpkg, jsdelivr, gstatic + `'unsafe-inline'` |
+| `img-src` | self, `data:`, `blob:`, OpenStreetMap, CartoDB, googleusercontent, `*.googleapis.com`, `*.gstatic.com` |
+| `connect-src` | self, `*.googleapis.com`, `*.firebaseio.com`, `*.firebaseapp.com`, generativelanguage, google, gstatic, recaptcha, `wss://*.googleapis.com` (Firestore listeners) |
+| `frame-src` / `child-src` | self, google, firebaseapp, accounts.google.com, apis.google.com, recaptcha |
+| `font-src` | self, `data:`, `*.gstatic.com` |
+| `base-uri` | `'self'` |
+| `form-action` | `'self'`, accounts.google.com |
+
+**`unsafe-inline` y `unsafe-eval`** en `script-src` son necesarios porque la app usa `onclick` inline y algunas librerías (Leaflet, Firebase) hacen `eval`. Tradeoff conocido — se compensa con el resto de capas.
+
+⚠️ **Si en el futuro se agrega una integración nueva** (WhatsApp Business API, MercadoPago, analytics, etc.), hay que **agregar su dominio al CSP antes de deployar**. Caso contrario el browser bloquea la conexión y el feature falla silenciosamente en producción. El CSP está en `_build_argentina_zonas_v2.py` línea ~578 (meta tag dentro del `<head>`).
+
+### 32.11 Modelo de amenazas considerado
+
+| # | Amenaza | Mitigación principal |
+|---|---|---|
+| T1 | Robo de credenciales (phishing) | OAuth + 2FA + Whitelist |
+| T2 | Acceso no autorizado a datos de otro vendedor | Firestore Rules con UID check |
+| T3 | API key exfiltrada y usada externamente | Restricción Cloud Console + App Check |
+| T4 | XSS (inyección de JS) | CSP estricta + escape de HTML |
+| T5 | Bot scraping / abuso de API | App Check + reCAPTCHA v3 |
+| T6 | Compromiso del repositorio | Branch ruleset + 2FA GitHub |
+| T7 | Dependencias vulnerables | Dependabot + CodeQL |
+| T8 | Secretos hardcodeados | Secret Scanning + Push Protection |
+| T9 | Phishing con dominio similar | Authorized domains restringidos |
+
+### 32.12 Próximos pasos (post-hardening)
+
+**Corto plazo (7-14 días)**:
+- Activar App Check **Enforcement** en Firestore API + Identity Toolkit API (cuando el dashboard muestre >95% Verified).
+- Revisar findings del primer scan de CodeQL y resolver High/Critical.
+
+**Mediano plazo (1-3 meses)**:
+- Budget alerts en Google Cloud Console (alerta a partir de USD X/día).
+- Subresource Integrity (SRI) hashes en scripts de CDN.
+- Auditoría de Firestore activada en Cloud Logging.
+- Migración a dominio personalizado verificado (`vendedores.shimano.com.ar`).
+
+**Largo plazo**:
+- Penetration test externo.
+- WAF (Cloudflare) frente a GitHub Pages.
+- Migración a Firebase Hosting (security headers automáticos).
+
+### 32.13 Si rompés algo de seguridad accidentalmente
+
+| Síntoma | Causa probable | Fix |
+|---|---|---|
+| Login con Google falla con `auth/internal-error` | CSP bloquea `apis.google.com` o `accounts.google.com` | Verificar que ambos estén en `script-src` y `frame-src` |
+| App Check da 403 throttled por 24h | Browser cacheó throttle del SDK | Limpiar site data en `edge://settings/siteData?siteToFilter=...github.io` |
+| Firestore writes fallan con "Missing or insufficient permissions" | Rules cambiadas y el rol del usuario no coincide | Revisar reglas + campo `rol` en `usuarios/{uid}` |
+| Push bloqueado por GitHub | Secret Scanning detectó API key en el diff | NO bypassear. Mover el secreto a Firestore o variable de entorno; ver `git reset --soft HEAD~1` para deshacer el commit |
+| Recursos bloqueados en consola por CSP | Dominio nuevo no en allowlist | Editar el meta CSP en el Python build (~línea 578) y deployar |
+
+### 32.14 Quién maneja qué
+
+- **Mariano** — desarrollo, Firestore Rules, CSP, App Check, GitHub repo, integración Gemini.
+- **Juan (IT/Sistemas)** — custodio del informe formal de ciberseguridad, punto de contacto ante incidentes.
+- **Eliana (IT/SAP)** — UDFs y serie "APP" en SAP B1.
+- **David (Comercial)** — datos maestros OITM/OCRD y alta de SlpCodes.
+
+### 32.15 Documentación relacionada
+
+- **`Informe_Ciberseguridad_App_Vendedores.docx`** — versión formal para IT/Sistemas con detalle completo de cada capa.
+- **Firestore Rules** — sección 8 de este README.
+- **Roles y permisos** — sección 6 de este README.
+
+---
+
 ## Apéndice A: Variables globales clave
 
 ```js
@@ -1578,4 +1793,6 @@ const PROTECTED_ADMIN_EMAILS = ['bot.shimano.pesca@gmail.com', 'erbinomariano@gm
 
 ---
 
-> Última actualización del README: 10-junio-2026. Documento mantenido por Mariano Erbino (data scientist Shimano Argentina). Para reportar bugs o sugerir mejoras: bot.shimano.pesca@gmail.com / erbinomariano@gmail.com.
+> Última actualización del README: 11-junio-2026. Documento mantenido por Mariano Erbino (data scientist Shimano Argentina). Para reportar bugs o sugerir mejoras: bot.shimano.pesca@gmail.com / erbinomariano@gmail.com.
+>
+> **Cambios 11-junio-2026**: hardening completo de ciberseguridad (sección 32 nueva), cambio de color botón "Exportar para Análisis" a celeste corporativo (#00A9E0).
